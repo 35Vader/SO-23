@@ -182,17 +182,77 @@ int main() {
         exit(1);
     }
 
-    signal(SIGINT, intHandler);
+    // Inicializar array de registros
+    int numExecutions = 0;
+    ExecutionRecord *executionRecords = malloc(MAX_EXECUTIONS * sizeof(ExecutionRecord));
 
-    while (keepRunning) {
+    while (1) {
         int connfd = acceptConnection(sockfd);
         if (connfd < 0) {
             continue;
         }
 
-        handleClient(connfd);
+        // Receber comando do cliente
+        char *command = receiveCommand(connfd);
+        if (command == NULL) {
+            close(connfd);
+            continue;
+        }
 
+        // Separar comando e argumentos
+        char *programName = strtok(command, " ");
+        char **args = NULL;
+        int numArgs = 0;
+        while (1) {
+            char *arg = strtok(NULL, " ");
+            if (arg == NULL) {
+                break;
+            }
+            args = realloc(args, (numArgs + 1) * sizeof(char *));
+            args[numArgs] = arg;
+            numArgs++;
+        }
+
+        // Registar execução
+        ExecutionRecord record;
+        record.programName = strdup(programName);
+        record.args = args;
+        record.numArgs = numArgs;
+        record.startTime = time(NULL);
+        record.endTime = 0;
+        record.status = RUNNING;
+        executionRecords[numExecutions % MAX_EXECUTIONS] = record;
+        numExecutions++;
+
+        // Executar programa
+        handleExecution(connfd, programName, numArgs, args);
+
+        // Atualizar registo da execução
+        int recordIndex = (numExecutions - 1) % MAX_EXECUTIONS;
+        executionRecords[recordIndex].endTime = time(NULL);
+        executionRecords[recordIndex].status = FINISHED;
+
+        // Libertar memória
+        free(command);
+
+        if (args != NULL) {
+            free(args);
+        }
+
+        // Fechar conexão com cliente
         close(connfd);
     }
 
+    // Libertar memória dos registos
+    for (int i = 0; i < MAX_EXECUTIONS; i++) {
+        ExecutionRecord record = executionRecords[i];
+        free(record.programName);
+        if (record.args != NULL) {
+            free(record.args);
+        }
+    }
+    free(executionRecords);
+
+    close(sockfd);
+    return 0;
 }
